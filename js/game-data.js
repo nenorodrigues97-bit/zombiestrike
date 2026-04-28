@@ -162,7 +162,7 @@ export const MISSION_01 = {
     { id:'farmacia_2',      name:'Farmácia 2º',     type:'building', row:1, col:3, rows:1, cols:1, hasDoor:true },
     { id:'cruzamento',      name:'Cruzamento',      type:'road',     row:1, col:4, rows:1, cols:1 },
     { id:'edificio_leste',  name:'Edifício Leste',  type:'building', row:1, col:5, rows:2, cols:2, hasDoor:true },
-    { id:'rua_central_n',   name:'Rua Central',     type:'road',     row:2, col:3, rows:1, cols:2 },
+    { id:'rua_central_n',   name:'Rua Central',     type:'road',     row:2, col:3, rows:1, cols:1 },
     { id:'estacionamento',  name:'Estacionamento',  type:'parking',  row:2, col:4, rows:1, cols:1 },
     { id:'rua_central_s',   name:'Rua Central',     type:'road',     row:3, col:1, rows:1, cols:3 },
     { id:'spawn_sul',       name:'Spawn Sul',       type:'grass',    row:4, col:1, rows:1, cols:2, spawnId:'S2' },

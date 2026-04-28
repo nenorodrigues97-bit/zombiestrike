@@ -5,7 +5,7 @@
 
 import { db, ref, set, get, onValue, update, push, remove, onDisconnect } from './firebase-config.js';
 import { createInitialGameState, endPlayerTurn, movePlayer, performMeleeAttack, performRangedAttack, searchZone, collectObjective, useHealItem, rollDice, deepClone } from './game-engine.js';
-import { initRenderer, onZoneClick } from './map-renderer.js';
+import { initRenderer, onZoneClick, setPendingAction } from './map-renderer.js';
 import { initUI, renderGameState, renderWaitingPlayers, showScreen, showNotification, showDiceModal } from './ui.js';
 import { CHARACTERS, WEAPONS, MISSION_01 } from './game-data.js';
 
@@ -24,6 +24,15 @@ window.addEventListener('DOMContentLoaded', () => {
   initUI(localPlayerId, handlePlayerAction);
   initRenderer(document.getElementById('gameCanvas'));
   onZoneClick(handleZoneClick);
+
+  // Escape cancels pending actions
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && pendingAction) {
+      pendingAction = null;
+      setPendingAction(null);
+      showNotification('Ação cancelada', '');
+    }
+  });
 });
 
 // ---- LOBBY ----
@@ -195,7 +204,8 @@ function handlePlayerAction(action) {
   switch (action) {
     case 'move':
       pendingAction = 'move';
-      showNotification('Clique em uma zona adjacente para mover', '');
+      setPendingAction('move');
+      showNotification('Clique em uma zona adjacente para mover  [ESC = cancelar]', '');
       break;
 
     case 'melee':
@@ -219,7 +229,8 @@ function handlePlayerAction(action) {
       const rangedWeapon = getRangedWeapon(myPlayer);
       if (!rangedWeapon) { showNotification('Sem arma à distância!', 'warning'); return; }
       pendingAction = { type: 'ranged', weapon: rangedWeapon };
-      showNotification('Clique em uma zona para atirar', '');
+      setPendingAction('ranged');
+      showNotification('Clique em uma zona para atirar  [ESC = cancelar]', '');
       break;
 
     case 'search':
@@ -259,6 +270,7 @@ function handleZoneClick(zoneId) {
 
   if (pendingAction === 'move') {
     pendingAction = null;
+    setPendingAction(null);
     const result = movePlayer(deepClone(currentGameState), localPlayerId, zoneId);
     if (result.error) { showNotification(result.error, 'warning'); return; }
     pushGameState(result.state);
@@ -266,6 +278,7 @@ function handleZoneClick(zoneId) {
     const weapon = WEAPONS[pendingAction.weapon];
     const action = pendingAction;
     pendingAction = null;
+    setPendingAction(null);
     const result = performRangedAttack(deepClone(currentGameState), localPlayerId, action.weapon, zoneId);
     if (result.error) { showNotification(result.error, 'warning'); return; }
     if (result.rolls) {

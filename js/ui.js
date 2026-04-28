@@ -465,7 +465,7 @@ function initMapControls() {
   }
 
   viewport.addEventListener('wheel', e => { e.preventDefault(); const rect = viewport.getBoundingClientRect(); zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 0.87); }, { passive: false });
-  viewport.addEventListener('mousedown', e => { if (e.button !== 0) return; dragging = true; startX = e.clientX; startY = e.clientY; startTx = tx; startTy = ty; viewport.style.cursor = 'grabbing'; e.preventDefault(); });
+  viewport.addEventListener('mousedown', e => { if (e.button !== 0) return; dragging = true; startX = e.clientX; startY = e.clientY; startTx = tx; startTy = ty; viewport.style.cursor = 'grabbing'; });
   document.addEventListener('mousemove', e => { if (!dragging) return; tx = startTx + (e.clientX - startX); ty = startTy + (e.clientY - startY); clamp(); applyTransform(); });
   document.addEventListener('mouseup', () => { dragging = false; viewport.style.cursor = 'grab'; });
 

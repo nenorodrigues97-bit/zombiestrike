@@ -49,13 +49,37 @@ let selectedZone = null;
 let reachableZones = [];
 let animFrame = 0;
 let clickHandler = null;
+let mapActionMode = null; // 'move' | 'ranged' | null — visual feedback
+let mouseDownX = 0, mouseDownY = 0; // drag detection
 
 export function initRenderer(canvasEl) {
   canvas = canvasEl;
   ctx = canvas.getContext('2d');
   buildZoneRects();
+
+  // Track where the mouse went down so we can ignore post-drag clicks
+  canvas.addEventListener('mousedown', e => {
+    mouseDownX = e.clientX;
+    mouseDownY = e.clientY;
+  });
   canvas.addEventListener('click', handleCanvasClick);
+
+  // Change cursor when hovering reachable zones in action mode
+  canvas.addEventListener('mousemove', e => {
+    if (!mapActionMode) { canvas.style.cursor = 'default'; return; }
+    const zoneId = getZoneAtEvent(e);
+    canvas.style.cursor = (zoneId && reachableZones.includes(zoneId)) ? 'pointer' : 'crosshair';
+  });
+  canvas.addEventListener('mouseleave', () => {
+    if (!mapActionMode) canvas.style.cursor = 'default';
+  });
+
   startRenderLoop();
+}
+
+export function setPendingAction(mode) {
+  mapActionMode = mode;
+  if (canvas) canvas.style.cursor = mode ? 'crosshair' : 'default';
 }
 
 export function updateGameState(state) {
@@ -76,19 +100,20 @@ export function onZoneClick(handler) {
 
 function handleCanvasClick(e) {
   if (!clickHandler) return;
+  // Ignore clicks that were actually pans (mouse moved > 6px)
+  if (Math.abs(e.clientX - mouseDownX) > 6 || Math.abs(e.clientY - mouseDownY) > 6) return;
+
+  const zoneId = getZoneAtEvent(e);
+  if (zoneId) clickHandler(zoneId);
+}
+
+function getZoneAtEvent(e) {
   const rect = canvas.getBoundingClientRect();
-  // Account for canvas scaling via CSS transform
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
-
-  for (const [id, r] of Object.entries(zoneRects)) {
-    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
-      clickHandler(id);
-      break;
-    }
-  }
+  return getZoneAt(x, y);
 }
 
 function startRenderLoop() {
@@ -117,6 +142,7 @@ function draw() {
   }
   drawBorder();
   drawCompass();
+  if (mapActionMode) drawActionModeOverlay();
 }
 
 function drawRoads() {
@@ -181,7 +207,9 @@ function drawZones() {
       ctx.fillRect(r.x, r.y, r.w, r.h);
     }
     if (isReachable) {
-      ctx.fillStyle = C.reachable;
+      // Stronger pulse when in action mode so target zones are obvious
+      const reachPulse = mapActionMode ? 0.18 + 0.12 * Math.sin(animFrame * 0.1) : 0.12;
+      ctx.fillStyle = `rgba(26,111,196,${reachPulse})`;
       ctx.fillRect(r.x, r.y, r.w, r.h);
     }
     if (isSelected) {
@@ -193,7 +221,10 @@ function drawZones() {
     let borderColor = 'rgba(255,255,255,0.06)';
     let borderWidth = 1;
     if (isSelected)  { borderColor = C.selectedBorder; borderWidth = 2.5; }
-    else if (isReachable) { borderColor = C.reachableBorder; borderWidth = 1.5; }
+    else if (isReachable) {
+      borderColor = mapActionMode ? 'rgba(74,154,245,0.8)' : C.reachableBorder;
+      borderWidth = mapActionMode ? 2 : 1.5;
+    }
     else if (isExit) { borderColor = C.exitBorder; borderWidth = 2; }
     else if (isSpawn) {
       ctx.strokeStyle = C.spawnBorder;
@@ -266,31 +297,37 @@ function drawParkingLines(r) {
 }
 
 function drawZoneLabels() {
-  ctx.font = "7px 'Share Tech Mono'";
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'bottom';
-
   for (const [id, r] of Object.entries(zoneRects)) {
     const { zone } = r;
     const isExit = zone.isExit;
     const isSpawn = !!zone.spawnId;
+    const isReachable = reachableZones.includes(id);
 
-    ctx.fillStyle = isExit ? 'rgba(42,154,58,0.7)' : isSpawn ? 'rgba(192,21,42,0.6)' : C.textDim;
-    ctx.fillText(zone.name.toUpperCase(), r.x + 4, r.y + r.h - 3);
+    // Zone name — bottom-left with semi-transparent backdrop
+    const label = zone.name.toUpperCase();
+    ctx.font = "bold 9px 'Share Tech Mono'";
+    const tw = ctx.measureText(label).width + 6;
+    const ty2 = r.y + r.h - 4;
+    const tx2 = r.x + 4;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(tx2 - 2, ty2 - 10, tw, 12);
+    ctx.fillStyle = isExit ? '#2a9a3a' : isSpawn ? '#c0152a' : isReachable ? '#4a9af5' : 'rgba(255,255,255,0.35)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(label, tx2, ty2);
 
     // Spawn ID badge
     if (zone.spawnId) {
       ctx.fillStyle = '#7a0d1a';
-      ctx.fillRect(r.x + 4, r.y + 4, 22, 13);
+      ctx.fillRect(r.x + 4, r.y + 4, 24, 15);
       ctx.strokeStyle = '#c0152a';
       ctx.lineWidth = 1;
-      ctx.strokeRect(r.x + 4, r.y + 4, 22, 13);
+      ctx.strokeRect(r.x + 4, r.y + 4, 24, 15);
       ctx.fillStyle = '#ff4050';
-      ctx.font = "bold 9px 'Bebas Neue'";
+      ctx.font = "bold 10px 'Bebas Neue'";
       ctx.textAlign = 'center';
-      ctx.fillText(zone.spawnId, r.x + 15, r.y + 14);
-      ctx.font = "7px 'Share Tech Mono'";
-      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(zone.spawnId, r.x + 16, r.y + 11);
     }
 
     // Exit marker
@@ -308,16 +345,17 @@ function drawZoneLabels() {
       ctx.setLineDash([]);
       ctx.restore();
       ctx.fillStyle = '#2a9a3a';
-      ctx.font = "10px 'Bebas Neue'";
+      ctx.font = "bold 12px 'Bebas Neue'";
       ctx.textAlign = 'center';
-      ctx.fillText('SAÍDA', cx, cy - 4);
-      ctx.font = '13px serif';
-      ctx.fillText('🚁', cx - 6, cy + 12);
-      ctx.font = "7px 'Share Tech Mono'";
-      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SAÍDA', cx, cy - 6);
+      ctx.font = '14px serif';
+      ctx.textBaseline = 'top';
+      ctx.fillText('🚁', cx - 7, cy + 4);
     }
   }
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 }
 
 function drawTokens() {
@@ -476,21 +514,50 @@ function drawTurnIndicator() {
   const char = getCharData(player.character);
   if (!char) return;
 
-  const text = `▶ VEZ DE ${char.name} — ${player.actionsLeft ?? 0} AÇÕES`;
-  const textW = ctx.measureText(text).width + 24;
-  const bx = CANVAS_W / 2 - textW / 2, by = CANVAS_H * 0.38;
+  ctx.font = "bold 10px 'Share Tech Mono'";
+  const text = `▶ ${char.name} — ${player.actionsLeft ?? 0} AÇÕES`;
+  const textW = ctx.measureText(text).width + 20;
+  const bx = CANVAS_W / 2 - textW / 2, by = 6;
 
-  ctx.fillStyle = 'rgba(0,0,0,0.92)';
-  ctx.strokeStyle = '#1a6fc4';
+  ctx.fillStyle = 'rgba(0,0,0,0.88)';
+  ctx.fillRect(bx, by, textW, 18);
+  ctx.strokeStyle = char.color || '#1a6fc4';
   ctx.lineWidth = 1.5;
-  ctx.fillRect(bx, by, textW, 20);
-  ctx.strokeRect(bx, by, textW, 20);
-  ctx.fillStyle = '#4a9af5';
-  ctx.font = "9px 'Share Tech Mono'";
+  ctx.strokeRect(bx, by, textW, 18);
+  ctx.fillStyle = char.color || '#4a9af5';
   ctx.textAlign = 'center';
-  ctx.letterSpacing = '1px';
-  ctx.fillText(text, CANVAS_W / 2, by + 13);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, CANVAS_W / 2, by + 9);
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawActionModeOverlay() {
+  const labels = { move: '🚶 CLIQUE EM UMA ZONA PARA MOVER', ranged: '🔫 CLIQUE EM UMA ZONA PARA ATIRAR' };
+  const label = labels[mapActionMode] || `▶ SELECIONE UMA ZONA`;
+  const pulse = 0.85 + 0.15 * Math.sin(animFrame * 0.15);
+
+  ctx.font = "bold 11px 'Share Tech Mono'";
+  const tw = ctx.measureText(label).width + 24;
+  const bx = CANVAS_W / 2 - tw / 2;
+  const by = CANVAS_H - 28;
+
+  ctx.fillStyle = `rgba(26,111,196,${0.9 * pulse})`;
+  ctx.fillRect(bx, by, tw, 22);
+  ctx.strokeStyle = `rgba(74,154,245,${pulse})`;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(bx, by, tw, 22);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, CANVAS_W / 2, by + 11);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  // Animated border on canvas to draw attention
+  ctx.strokeStyle = `rgba(74,154,245,${0.3 * pulse})`;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, CANVAS_W - 6, CANVAS_H - 6);
 }
 
 function drawBorder() {

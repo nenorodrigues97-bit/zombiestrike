@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZombieStrike</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=Oswald:wght@400;600;700&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- LOBBY SCREEN -->
+<div id="screen-lobby" class="screen active">
+  <div class="lobby-bg"></div>
+  <div class="lobby-content">
+    <div class="lobby-logo">
+      <div class="logo-title">ZOMBIE<span>STRIKE</span></div>
+      <div class="logo-sub">SURVIVAL COOPERATIVE</div>
+    </div>
+    <div class="lobby-panels">
+      <!-- CREATE ROOM -->
+      <div class="lobby-panel">
+        <div class="panel-header">// CRIAR SALA</div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label>SEU NOME</label>
+            <input type="text" id="create-name" placeholder="Ex: Bilico" maxlength="16"/>
+          </div>
+          <div class="form-group">
+            <label>SELECIONE SEU PERSONAGEM</label>
+            <div class="char-select" id="create-char-select">
+              <div class="char-opt" data-char="nick">
+                <div class="char-dot" style="background:var(--blue)"></div>
+                <span>NICK</span><small>Atirador</small>
+              </div>
+              <div class="char-opt" data-char="bilico">
+                <div class="char-dot" style="background:var(--red)"></div>
+                <span>BILICO</span><small>Combatente</small>
+              </div>
+              <div class="char-opt" data-char="allastor">
+                <div class="char-dot" style="background:var(--orange)"></div>
+                <span>ALLASTOR55</span><small>Engenheiro</small>
+              </div>
+              <div class="char-opt" data-char="math">
+                <div class="char-dot" style="background:var(--green)"></div>
+                <span>MATH</span><small>Médica</small>
+              </div>
+              <div class="char-opt" data-char="felipinho">
+                <div class="char-dot" style="background:var(--yellow)"></div>
+                <span>FELIPINHO</span><small>Sobrevivente</small>
+              </div>
+              <div class="char-opt" data-char="solamentos">
+                <div class="char-dot" style="background:var(--purple)"></div>
+                <span>SOLAMENTOS</span><small>Estrategista</small>
+              </div>
+              <div class="char-opt" data-char="bigbi">
+                <div class="char-dot" style="background:#aaa"></div>
+                <span>BIGBI</span><small>Furtiva</small>
+              </div>
+            </div>
+          </div>
+          <button class="btn-primary" id="btn-create">CRIAR SALA</button>
+        </div>
+      </div>
+
+      <!-- JOIN ROOM -->
+      <div class="lobby-panel">
+        <div class="panel-header">// ENTRAR NA SALA</div>
+        <div class="panel-body">
+          <div class="form-group">
+            <label>SEU NOME</label>
+            <input type="text" id="join-name" placeholder="Ex: Solamentos" maxlength="16"/>
+          </div>
+          <div class="form-group">
+            <label>SELECIONE SEU PERSONAGEM</label>
+            <div class="char-select" id="join-char-select">
+              <div class="char-opt" data-char="nick">
+                <div class="char-dot" style="background:var(--blue)"></div>
+                <span>NICK</span><small>Atirador</small>
+              </div>
+              <div class="char-opt" data-char="bilico">
+                <div class="char-dot" style="background:var(--red)"></div>
+                <span>BILICO</span><small>Combatente</small>
+              </div>
+              <div class="char-opt" data-char="allastor">
+                <div class="char-dot" style="background:var(--orange)"></div>
+                <span>ALLASTOR55</span><small>Engenheiro</small>
+              </div>
+              <div class="char-opt" data-char="math">
+                <div class="char-dot" style="background:var(--green)"></div>
+                <span>MATH</span><small>Médica</small>
+              </div>
+              <div class="char-opt" data-char="felipinho">
+                <div class="char-dot" style="background:var(--yellow)"></div>
+                <span>FELIPINHO</span><small>Sobrevivente</small>
+              </div>
+              <div class="char-opt" data-char="solamentos">
+                <div class="char-dot" style="background:var(--purple)"></div>
+                <span>SOLAMENTOS</span><small>Estrategista</small>
+              </div>
+              <div class="char-opt" data-char="bigbi">
+                <div class="char-dot" style="background:#aaa"></div>
+                <span>BIGBI</span><small>Furtiva</small>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>CÓDIGO DA SALA</label>
+            <input type="text" id="join-code" placeholder="Ex: ZMBK-4821" maxlength="9" style="text-transform:uppercase;letter-spacing:4px;font-size:18px;"/>
+          </div>
+          <button class="btn-primary" id="btn-join">ENTRAR</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WAITING ROOM -->
+<div id="screen-waiting" class="screen">
+  <div class="waiting-content">
+    <div class="waiting-header">
+      <div class="logo-title small">ZOMBIE<span>STRIKE</span></div>
+      <div class="room-code-display">
+        <span class="room-code-label">// CÓDIGO DA SALA</span>
+        <span class="room-code-value" id="display-room-code">----</span>
+        <button class="btn-copy" id="btn-copy-code">COPIAR</button>
+      </div>
+    </div>
+    <div class="waiting-body">
+      <div class="waiting-players">
+        <div class="panel-header">// JOGADORES NA SALA <span id="player-count">0</span>/7</div>
+        <div id="waiting-player-list" class="player-list"></div>
+      </div>
+      <div class="waiting-right">
+        <div class="mission-preview">
+          <div class="panel-header">// MISSÃO SELECIONADA</div>
+          <div class="mission-card">
+            <div class="mission-num">01</div>
+            <div class="mission-info">
+              <div class="mission-title">SINAL DE SOCORRO</div>
+              <div class="mission-diff">● FÁCIL · 2–7 JOGADORES · 10 TURNOS</div>
+              <div class="mission-desc">Um sobrevivente está preso no 2º andar de uma farmácia cercada de zumbis. Resgate-o e escape pela zona norte.</div>
+            </div>
+          </div>
+        </div>
+        <div class="waiting-actions">
+          <button class="btn-primary large" id="btn-start-game" style="display:none">INICIAR PARTIDA</button>
+          <div class="waiting-status" id="waiting-status">Aguardando o host iniciar...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GAME SCREEN -->
+<div id="screen-game" class="screen">
+  <div class="app">
+
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="topbar-logo">ZOMBIE<span>STRIKE</span></div>
+      <div class="topbar-mission">
+        <span class="mission-label">// MISSÃO ATIVA</span>
+        <span class="mission-name">01 — SINAL DE SOCORRO</span>
+      </div>
+      <div class="topbar-turn">
+        <div class="turn-block">
+          <span class="turn-label">TURNO</span>
+          <span class="turn-val" id="hud-turn">1</span>
+        </div>
+        <div class="turn-divider"></div>
+        <div class="turn-block">
+          <span class="turn-label">MÁX.</span>
+          <span class="turn-val" style="color:var(--text-dim);font-size:18px">10</span>
+        </div>
+      </div>
+      <div class="topbar-phase">
+        <div class="phase-dot" id="phase-dot"></div>
+        <span class="phase-text" id="hud-phase">FASE DOS JOGADORES</span>
+      </div>
+      <div class="topbar-danger">
+        <span class="danger-label">PERIGO</span>
+        <div class="danger-levels" id="danger-levels">
+          <div class="dlvl blue active"></div>
+          <div class="dlvl yellow"></div>
+          <div class="dlvl orange"></div>
+          <div class="dlvl red"></div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn-top default" id="btn-rules">📋 REGRAS</button>
+        <button class="btn-top primary" id="btn-end-turn">⏭ FIM DO TURNO</button>
+      </div>
+    </div>
+
+    <!-- MAIN AREA -->
+    <div class="main-area">
+
+      <!-- LEFT SIDEBAR -->
+      <div class="sidebar-left">
+        <div class="panel-title">// OBJETIVOS DA MISSÃO</div>
+        <div class="objectives" id="objectives-list"></div>
+
+        <div class="panel-title">// ZONAS DE SPAWN</div>
+        <div class="spawn-info" id="spawn-info"></div>
+
+        <div class="panel-title">// RUÍDO POR ZONA</div>
+        <div class="noise-info" id="noise-info"></div>
+
+        <div class="panel-title">// LOG DE AÇÕES</div>
+        <div class="log-panel" id="action-log"></div>
+      </div>
+
+      <!-- MAP -->
+      <div class="map-area">
+        <div class="map-container">
+          <div class="map-viewport" id="mapViewport" style="width:100%;height:100%;overflow:hidden;position:relative;cursor:grab;user-select:none;-webkit-user-select:none;">
+            <div id="mapSvgWrap" style="position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;width:840px;height:520px;">
+              <canvas id="gameCanvas" width="840" height="520" style="display:block;"></canvas>
+            </div>
+            <div id="mapBtns" style="position:absolute;bottom:12px;left:12px;z-index:999;display:flex;flex-direction:column;gap:4px;">
+              <button id="zoomIn"    class="map-ctrl-btn">+</button>
+              <button id="zoomReset" class="map-ctrl-btn">⌖</button>
+              <button id="zoomOut"   class="map-ctrl-btn">−</button>
+            </div>
+            <!-- Action overlay for zone clicks -->
+            <div id="action-overlay" style="position:absolute;display:none;z-index:50;"></div>
+          </div>
+        </div>
+
+        <!-- LEGEND -->
+        <div class="map-legend">
+          <div class="legend-item"><div class="legend-dot" style="border-color:#5a8a5a;background:rgba(90,138,90,0.3)"></div>W = ARRASTÃO</div>
+          <div class="legend-item"><div class="legend-dot" style="border-color:#c8a820;background:rgba(200,168,32,0.3)"></div>R = ESPASMO</div>
+          <div class="legend-item"><div class="legend-dot" style="border-color:#c86820;background:rgba(200,104,32,0.3)"></div>F = INCHAÇO</div>
+          <div class="legend-item"><div class="legend-dot" style="border-color:var(--red);background:rgba(192,21,48,0.3)"></div>C = COLOSSO</div>
+        </div>
+      </div>
+
+      <!-- RIGHT SIDEBAR -->
+      <div class="sidebar-right">
+        <div class="panel-title">// TURNO ATIVO</div>
+        <div class="active-player-panel" id="active-player-panel">
+          <div class="ap-photo" id="ap-photo" style="display:none">
+            <img id="ap-photo-img" src="" alt=""/>
+            <div class="ap-photo-badge" id="ap-photo-badge"></div>
+          </div>
+          <div class="ap-inner">
+            <div class="ap-header">
+              <div>
+                <div class="ap-name" id="ap-name">—</div>
+                <div class="ap-role" id="ap-role">Aguardando...</div>
+              </div>
+              <span class="ap-level" id="ap-level">● AZUL</span>
+            </div>
+            <div class="actions-bar">
+              <div class="actions-label">// AÇÕES RESTANTES</div>
+              <div class="actions-pips" id="actions-pips"></div>
+            </div>
+            <div class="xp-bar">
+              <div class="xp-label"><span>// XP</span><span id="ap-xp">0 / 7</span></div>
+              <div class="xp-track"><div class="xp-fill" id="ap-xp-fill"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-title">// INVENTÁRIO</div>
+        <div class="inventory">
+          <div class="inv-grid" id="inv-grid"></div>
+        </div>
+
+        <div class="panel-title">// AÇÕES DISPONÍVEIS</div>
+        <div class="action-buttons" id="action-buttons"></div>
+
+        <div class="panel-title">// STATUS</div>
+        <div class="status-panel" id="status-panel"></div>
+      </div>
+
+    </div>
+
+    <!-- PLAYERS BAR -->
+    <div class="players-bar" id="players-bar"></div>
+
+    <!-- STATUS BAR -->
+    <div class="statusbar">
+      <div class="statusbar-item"><div class="status-dot online"></div><span id="sb-online">0 JOGADORES ONLINE</span></div>
+      <div class="statusbar-item"><div class="status-dot warning"></div><span id="sb-active">—</span></div>
+      <div class="statusbar-item"><span id="sb-zombies">🧟 0 ZUMBIS NO MAPA</span></div>
+      <div class="statusbar-item"><span id="sb-noise">🔊 RUÍDO: 0</span></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- DICE ROLL MODAL -->
+<div id="dice-modal" class="modal" style="display:none">
+  <div class="modal-box">
+    <div class="modal-title" id="dice-title">ROLANDO DADOS</div>
+    <div class="dice-container" id="dice-container"></div>
+    <div class="dice-result" id="dice-result"></div>
+    <button class="btn-primary" id="dice-confirm" style="display:none">CONFIRMAR</button>
+  </div>
+</div>
+
+<!-- NOTIFICATION -->
+<div id="notification" class="notification" style="display:none"></div>
+
+
+
+
+
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

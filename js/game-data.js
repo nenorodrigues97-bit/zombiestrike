@@ -191,8 +191,9 @@ export const MISSION_01 = {
 
   // Initial zombie placement
   initialZombies: {
-    farmacia_1:     [{ type:'walker' }, { type:'walker' }, { type:'walker' }],
-    spawn_norte:    [{ type:'walker' }, { type:'walker' }],
+    farmacia_1:     [{ type:'walker' }],
+    farmacia_2:     [{ type:'walker' }],
+    spawn_norte:    [{ type:'walker' }, { type:'walker' }, { type:'walker' }],
     armazem:        [{ type:'walker' }],
     edificio_leste: [{ type:'runner' }, { type:'fatty' }, { type:'walker' }, { type:'walker' }],
     rua_oeste:      [{ type:'walker' }, { type:'walker' }],

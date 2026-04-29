@@ -6,9 +6,8 @@
 import { db, ref, set, get, onValue, update, push, remove, onDisconnect } from './firebase-config.js';
 import { createInitialGameState, endPlayerTurn, movePlayer, performMeleeAttack, performRangedAttack, searchZone, collectObjective, useHealItem, rollDice, deepClone } from './game-engine.js';
 import { initRenderer, onZoneClick, setPendingAction, setRangedZones } from './map-renderer.js';
-import { initUI, renderGameState, renderWaitingPlayers, showScreen, showNotification, showDiceModal } from './ui.js';
+import { initUI, renderGameState, renderWaitingPlayers, showScreen, showNotification, showDiceModal, computeRangedZones } from './ui.js';
 import { CHARACTERS, WEAPONS, MISSION_01 } from './game-data.js';
-import { computeRangedZones } from './ui.js';
 
 // ---- STATE ----
 let roomCode = '';
@@ -203,11 +202,23 @@ function handlePlayerAction(action) {
   }
 
   switch (action) {
-    case 'move':
+    case 'move': {
+      // Import computeReachableWithCosts via ui proxy to check if any zones exist
+      const zombiesByZone = {};
+      Object.values(currentGameState.zombies).forEach(z => { zombiesByZone[z.zone] = (zombiesByZone[z.zone]||0)+1; });
+      const zombiesHere = zombiesByZone[myPlayer.zone] || 0;
+      const exitCost = (myPlayer.character === 'bilico' || myPlayer.character === 'felipinho') ? 1 : 1 + zombiesHere;
+      const hasAdjacentZone = (MISSION_01.adjacency[myPlayer.zone] || []).length > 0;
+      if (!hasAdjacentZone || exitCost > myPlayer.actionsLeft) {
+        const need = exitCost;
+        showNotification(`Bloqueado! Precisa de ${need} ações para sair (você tem ${myPlayer.actionsLeft}). Use Combate C.C. primeiro!`, 'warning');
+        return;
+      }
       pendingAction = 'move';
       setPendingAction('move');
-      showNotification('Clique em uma zona adjacente para mover  [ESC = cancelar]', '');
+      showNotification('Clique em uma zona azul para mover  [ESC = cancelar]', '');
       break;
+    }
 
     case 'melee':
       const zombiesInZone = Object.values(currentGameState.zombies).filter(z => z.zone === myPlayer.zone);

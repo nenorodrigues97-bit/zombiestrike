@@ -178,37 +178,75 @@ export function movePlayer(state, playerId, targetZone) {
   if (!player || player.eliminated) return { state, error: 'Player not available' };
   if (newState.activePlayer !== playerId) return { state, error: 'Not your turn' };
   if (newState.phase !== 'players') return { state, error: 'Not player phase' };
+  if (player.zone === targetZone) return { state, error: 'Já está nessa zona' };
 
-  // Check adjacency
-  const currentAdj = MISSION_01.adjacency[player.zone] || [];
-  if (!currentAdj.includes(targetZone)) return { state, error: 'Zone not adjacent' };
+  // Find shortest-cost path via Dijkstra
+  const path = findPath(newState, player.zone, targetZone, player);
+  if (!path) return { state, error: 'Zona inacessível' };
 
-  // Cost: 1 action base + 1 per zombie in current zone (except bigbi)
-  let cost = 1;
-  if (player.character !== 'bilico' && player.character !== 'felipinho') {
-    const zombiesInZone = Object.values(newState.zombies).filter(z => z.zone === player.zone).length;
-    cost += zombiesInZone;
+  // Calculate total action cost along the path
+  let totalCost = 0;
+  let cur = player.zone;
+  for (const next of path) {
+    const zombiesHere = Object.values(newState.zombies).filter(z => z.zone === cur).length;
+    const stepCost = (player.character === 'bilico' || player.character === 'felipinho')
+      ? 1 : 1 + zombiesHere;
+    totalCost += stepCost;
+    cur = next;
   }
 
-  if (player.actionsLeft < cost) return { state, error: `Precisa de ${cost} ações para mover (${Object.values(newState.zombies).filter(z=>z.zone===player.zone).length} zumbis na zona)` };
+  if (player.actionsLeft < totalCost) {
+    return { state, error: `Precisa de ${totalCost} ações para chegar (você tem ${player.actionsLeft})` };
+  }
 
-  // Move
   const oldZone = player.zone;
   player.zone = targetZone;
-  player.actionsLeft -= cost;
+  player.actionsLeft -= totalCost;
 
-  // Update noise
   if (player.character !== 'bigbi' && player.character !== 'felipinho') {
     newState.noise[oldZone] = Math.max(0, (newState.noise[oldZone] || 0) - 1);
     newState.noise[targetZone] = (newState.noise[targetZone] || 0) + 1;
   }
 
-  addLog(newState, `${getPlayerName(newState, playerId)} moveu para <strong>${getZoneName(targetZone)}</strong>`, 'info');
-
-  // Check if reached objective zone for auto-events
+  const steps = path.length > 1 ? ` (${path.length} zonas, ${totalCost} ações)` : '';
+  addLog(newState, `${getPlayerName(newState, playerId)} moveu para <strong>${getZoneName(targetZone)}</strong>${steps}`, 'info');
   checkAutoObjectives(newState, playerId);
 
   return { state: newState };
+}
+
+function findPath(state, from, to, player) {
+  const zombiesByZone = {};
+  for (const z of Object.values(state.zombies)) {
+    zombiesByZone[z.zone] = (zombiesByZone[z.zone] || 0) + 1;
+  }
+
+  const costs = { [from]: 0 };
+  const prev  = {};
+  const queue = [{ zone: from, cost: 0 }];
+
+  while (queue.length > 0) {
+    queue.sort((a, b) => a.cost - b.cost);
+    const { zone, cost } = queue.shift();
+    if (zone === to) {
+      const path = [];
+      let cur = to;
+      while (cur !== from) { path.unshift(cur); cur = prev[cur]; }
+      return path;
+    }
+    const zombiesHere = zombiesByZone[zone] || 0;
+    const exitCost = (player.character === 'bilico' || player.character === 'felipinho')
+      ? 1 : 1 + zombiesHere;
+    for (const next of (MISSION_01.adjacency[zone] || [])) {
+      const newCost = cost + exitCost;
+      if (costs[next] === undefined || newCost < costs[next]) {
+        costs[next] = newCost;
+        prev[next]  = zone;
+        queue.push({ zone: next, cost: newCost });
+      }
+    }
+  }
+  return null;
 }
 
 export function performMeleeAttack(state, playerId, weaponId) {

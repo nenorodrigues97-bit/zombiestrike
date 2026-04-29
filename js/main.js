@@ -5,9 +5,10 @@
 
 import { db, ref, set, get, onValue, update, push, remove, onDisconnect } from './firebase-config.js';
 import { createInitialGameState, endPlayerTurn, movePlayer, performMeleeAttack, performRangedAttack, searchZone, collectObjective, useHealItem, rollDice, deepClone } from './game-engine.js';
-import { initRenderer, onZoneClick, setPendingAction } from './map-renderer.js';
+import { initRenderer, onZoneClick, setPendingAction, setRangedZones } from './map-renderer.js';
 import { initUI, renderGameState, renderWaitingPlayers, showScreen, showNotification, showDiceModal } from './ui.js';
 import { CHARACTERS, WEAPONS, MISSION_01 } from './game-data.js';
+import { computeRangedZones } from './ui.js';
 
 // ---- STATE ----
 let roomCode = '';
@@ -230,7 +231,8 @@ function handlePlayerAction(action) {
       if (!rangedWeapon) { showNotification('Sem arma à distância!', 'warning'); return; }
       pendingAction = { type: 'ranged', weapon: rangedWeapon };
       setPendingAction('ranged');
-      showNotification('Clique em uma zona para atirar  [ESC = cancelar]', '');
+      setRangedZones(computeRangedZones(myPlayer.zone, WEAPONS[rangedWeapon]));
+      showNotification('Clique em uma zona laranja para atirar  [ESC = cancelar]', '');
       break;
 
     case 'search':

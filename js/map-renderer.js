@@ -1,143 +1,141 @@
 // ============================================================
-// MAP RENDERER — ZombieStrike
-// Draws the game map on an HTML5 Canvas
+// MAP RENDERER — ZombieStrike v2.0
+// Zombicide-inspired visuals + tactical movement system
 // ============================================================
 
 import { MISSION_01, CHARACTERS } from './game-data.js';
 
-const COLS = 7, ROWS = 5;
 const CELL_W = 120, CELL_H = 104;
 const CANVAS_W = 840, CANVAS_H = 520;
 
-// Color palette
 const C = {
-  road:     '#181816', roadLine: 'rgba(255,210,0,0.2)',
-  grass:    '#0c130a', grassDark: '#0e180b',
-  building: '#131210', buildingWall: '#2a2520',
-  floor:    '#161412', parking: '#131311',
-  spawn:    'rgba(192,21,42,0.2)', spawnBorder: 'rgba(192,21,42,0.6)',
-  exit:     'rgba(42,154,58,0.2)', exitBorder: 'rgba(42,154,58,0.7)',
-  selected: 'rgba(245,197,24,0.12)', selectedBorder: '#f5c518',
-  reachable:'rgba(26,111,196,0.12)', reachableBorder: 'rgba(26,111,196,0.5)',
-  wall:     '#2a2520', door: '#7a5a20', window: '#0d2535',
-  text:     'rgba(255,255,255,0.2)', textDim: 'rgba(255,255,255,0.12)',
-  walker:   '#5a8a5a', runner: '#c8a820', fatty: '#c86820', colosso: '#ff1a35',
-  noise:    '#c0152a',
-  objective:'#f5c518',
+  street: '#424040', streetLine: 'rgba(255,255,255,0.08)',
+  building: '#d0b878', buildingWall: '#1c1208', buildingTile: 'rgba(0,0,0,0.07)',
+  grass: '#3a6c1a', grassAlt: '#2e5a12',
+  parking: '#2a2826', parkingLine: 'rgba(255,210,0,0.40)',
+  window: '#1a3352', door: '#7a4e18',
+  spawnFill: 'rgba(200,40,20,0.14)', spawnBorder: '#dd2810',
+  exitFill:  'rgba(30,170,60,0.14)', exitBorder:  '#22b03a',
+  selFill:   'rgba(245,197,24,0.22)', selBorder:  '#f5c518',
+  mv1Fill: 'rgba(30,120,220,0.30)', mv1Border: 'rgba(80,160,255,0.90)',
+  mv2Fill: 'rgba(30,120,220,0.18)', mv2Border: 'rgba(80,160,255,0.60)',
+  mv3Fill: 'rgba(30,120,220,0.10)', mv3Border: 'rgba(80,160,255,0.35)',
+  atkFill: 'rgba(220,80,20,0.24)',  atkBorder: 'rgba(255,120,40,0.85)',
+  walker: '#4e8a4e', runner: '#b89818', fatty: '#b86018', colosso: '#cc1028',
+  noise: '#c0152a', objective: '#e8b810',
 };
 
-// Zone grid positions (row, col, rowspan, colspan)
-// Maps zone id to pixel rect
 let zoneRects = {};
+let canvas, ctx;
+let gameState    = null;
+let selectedZone = null;
+let reachableZones = [];
+let reachableCosts  = {};
+let rangedZones  = [];
+let mapActionMode = null;
+let mouseDownX = 0, mouseDownY = 0;
+let animFrame  = 0;
+let clickHandler = null;
 
+// ── Zone rects ────────────────────────────────────────────────────────────────
 function buildZoneRects() {
   zoneRects = {};
   for (const zone of MISSION_01.zones) {
     zoneRects[zone.id] = {
-      x: zone.col * CELL_W,
-      y: zone.row * CELL_H,
-      w: zone.cols * CELL_W,
-      h: zone.rows * CELL_H,
+      x: zone.col * CELL_W, y: zone.row * CELL_H,
+      w: zone.cols * CELL_W, h: zone.rows * CELL_H,
       zone
     };
   }
 }
 
-let canvas, ctx;
-let gameState = null;
-let selectedZone = null;
-let reachableZones = [];
-let animFrame = 0;
-let clickHandler = null;
-let mapActionMode = null; // 'move' | 'ranged' | null — visual feedback
-let mouseDownX = 0, mouseDownY = 0; // drag detection
-
+// ── Exports ───────────────────────────────────────────────────────────────────
 export function initRenderer(canvasEl) {
   canvas = canvasEl;
   ctx = canvas.getContext('2d');
   buildZoneRects();
 
-  // Track where the mouse went down so we can ignore post-drag clicks
-  canvas.addEventListener('mousedown', e => {
-    mouseDownX = e.clientX;
-    mouseDownY = e.clientY;
-  });
+  canvas.addEventListener('mousedown', e => { mouseDownX = e.clientX; mouseDownY = e.clientY; });
   canvas.addEventListener('click', handleCanvasClick);
-
-  // Change cursor when hovering reachable zones in action mode
   canvas.addEventListener('mousemove', e => {
     if (!mapActionMode) { canvas.style.cursor = 'default'; return; }
-    const zoneId = getZoneAtEvent(e);
-    canvas.style.cursor = (zoneId && reachableZones.includes(zoneId)) ? 'pointer' : 'crosshair';
+    const z = getZoneAtEvent(e);
+    const valid = z && (reachableZones.includes(z) || rangedZones.includes(z));
+    canvas.style.cursor = valid ? 'pointer' : 'crosshair';
   });
-  canvas.addEventListener('mouseleave', () => {
-    if (!mapActionMode) canvas.style.cursor = 'default';
-  });
-
+  canvas.addEventListener('mouseleave', () => { if (!mapActionMode) canvas.style.cursor = 'default'; });
   startRenderLoop();
 }
 
+export function updateGameState(state) { gameState = state; }
+export function setSelectedZone(zoneId) { selectedZone = zoneId; }
+
+export function setReachableZones(zones) {
+  if (Array.isArray(zones)) {
+    reachableZones = zones;
+    reachableCosts = {};
+    for (const z of zones) reachableCosts[z] = 1;
+  } else {
+    reachableZones = Object.keys(zones);
+    reachableCosts = { ...zones };
+  }
+}
+
+export function setRangedZones(zones) { rangedZones = Array.isArray(zones) ? zones : []; }
+
 export function setPendingAction(mode) {
   mapActionMode = mode;
+  if (!mode) rangedZones = [];
   if (canvas) canvas.style.cursor = mode ? 'crosshair' : 'default';
 }
 
-export function updateGameState(state) {
-  gameState = state;
+export function onZoneClick(handler) { clickHandler = handler; }
+
+export function getZoneAt(x, y) {
+  for (const [id, r] of Object.entries(zoneRects)) {
+    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return id;
+  }
+  return null;
 }
 
-export function setSelectedZone(zoneId) {
-  selectedZone = zoneId;
-}
+export function getZoneRect(zoneId) { return zoneRects[zoneId] || null; }
 
-export function setReachableZones(zones) {
-  reachableZones = zones;
-}
-
-export function onZoneClick(handler) {
-  clickHandler = handler;
-}
-
+// ── Event handlers ────────────────────────────────────────────────────────────
 function handleCanvasClick(e) {
   if (!clickHandler) return;
-  // Ignore clicks that were actually pans (mouse moved > 6px)
   if (Math.abs(e.clientX - mouseDownX) > 6 || Math.abs(e.clientY - mouseDownY) > 6) return;
-
-  const zoneId = getZoneAtEvent(e);
-  if (zoneId) clickHandler(zoneId);
+  const z = getZoneAtEvent(e);
+  if (z) clickHandler(z);
 }
 
 function getZoneAtEvent(e) {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const x = (e.clientX - rect.left) * scaleX;
-  const y = (e.clientY - rect.top) * scaleY;
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top)  * (canvas.height / rect.height);
   return getZoneAt(x, y);
 }
 
+// ── Render loop ───────────────────────────────────────────────────────────────
 function startRenderLoop() {
-  function loop() {
-    animFrame++;
-    draw();
-    requestAnimationFrame(loop);
-  }
+  function loop() { animFrame++; draw(); requestAnimationFrame(loop); }
   requestAnimationFrame(loop);
 }
 
+// ── Main draw ─────────────────────────────────────────────────────────────────
 function draw() {
   if (!ctx) return;
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-  ctx.fillStyle = '#111110';
+  ctx.fillStyle = C.street;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-  drawRoads();
-  drawZones();
+  drawStreetGrid();
+  for (const r of Object.values(zoneRects)) drawZoneBase(r);
+  for (const [id, r] of Object.entries(zoneRects)) drawZoneOverlays(id, r);
   drawZoneLabels();
   if (gameState) {
-    drawTokens();
-    drawZombies();
-    drawSurvivors();
+    drawObjectiveTokens();
+    drawZombieTokens();
+    drawNoiseTokens();
+    drawSurvivorTokens();
     drawTurnIndicator();
   }
   drawBorder();
@@ -145,368 +143,436 @@ function draw() {
   if (mapActionMode) drawActionModeOverlay();
 }
 
-function drawRoads() {
-  // Draw road base everywhere
-  ctx.fillStyle = C.road;
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-  // Road dash lines horizontal
-  ctx.strokeStyle = C.roadLine;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([18, 10]);
-  for (let row = 0; row <= ROWS; row++) {
-    const y = row * CELL_H + CELL_H / 2;
+// ── Street grid ───────────────────────────────────────────────────────────────
+function drawStreetGrid() {
+  ctx.strokeStyle = C.streetLine;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([14, 9]);
+  for (let r = 0; r <= 5; r++) {
+    const y = r * CELL_H + CELL_H / 2;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_W, y); ctx.stroke();
   }
-  // Vertical
-  for (let col = 0; col <= COLS; col++) {
-    const x = col * CELL_W + CELL_W / 2;
+  for (let c = 0; c <= 7; c++) {
+    const x = c * CELL_W + CELL_W / 2;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_H); ctx.stroke();
   }
   ctx.setLineDash([]);
 }
 
-function drawZones() {
-  for (const [id, r] of Object.entries(zoneRects)) {
-    const { zone } = r;
-    const isSelected  = id === selectedZone;
-    const isReachable = reachableZones.includes(id) && !isSelected;
-    const isExit      = zone.isExit;
-    const isSpawn     = !!zone.spawnId;
-
-    // Base fill by type
-    switch (zone.type) {
-      case 'grass':
-        ctx.fillStyle = C.grass;
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-        drawGrassTexture(r);
-        break;
-      case 'building':
-        ctx.fillStyle = C.floor;
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-        drawBuildingDetails(r, zone);
-        break;
-      case 'parking':
-        ctx.fillStyle = C.parking;
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-        drawParkingLines(r);
-        break;
-      default: // road
-        ctx.fillStyle = '#1a1a18';
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-    }
-
-    // Overlays
-    if (isSpawn) {
-      ctx.fillStyle = C.spawn;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-    }
-    if (isExit) {
-      const pulse = 0.15 + 0.1 * Math.sin(animFrame * 0.05);
-      ctx.fillStyle = `rgba(42,154,58,${pulse})`;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-    }
-    if (isReachable) {
-      // Stronger pulse when in action mode so target zones are obvious
-      const reachPulse = mapActionMode ? 0.18 + 0.12 * Math.sin(animFrame * 0.1) : 0.12;
-      ctx.fillStyle = `rgba(26,111,196,${reachPulse})`;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-    }
-    if (isSelected) {
-      ctx.fillStyle = C.selected;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-    }
-
-    // Border
-    let borderColor = 'rgba(255,255,255,0.06)';
-    let borderWidth = 1;
-    if (isSelected)  { borderColor = C.selectedBorder; borderWidth = 2.5; }
-    else if (isReachable) {
-      borderColor = mapActionMode ? 'rgba(74,154,245,0.8)' : C.reachableBorder;
-      borderWidth = mapActionMode ? 2 : 1.5;
-    }
-    else if (isExit) { borderColor = C.exitBorder; borderWidth = 2; }
-    else if (isSpawn) {
-      ctx.strokeStyle = C.spawnBorder;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([7, 4]);
-      ctx.strokeRect(r.x + 0.75, r.y + 0.75, r.w - 1.5, r.h - 1.5);
-      ctx.setLineDash([]);
-      continue;
-    }
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth = borderWidth;
-    ctx.strokeRect(r.x + 0.75, r.y + 0.75, r.w - 1.5, r.h - 1.5);
+// ── Zone base rendering ───────────────────────────────────────────────────────
+function drawZoneBase(r) {
+  switch (r.zone.type) {
+    case 'building': drawBuildingZone(r); break;
+    case 'grass':    drawGrassZone(r); break;
+    case 'parking':  drawParkingZone(r); break;
+    default:         drawRoadZone(r); break;
   }
 }
 
-function drawGrassTexture(r) {
+function drawRoadZone(r) {
+  ctx.fillStyle = '#3e3c3a';
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 10]);
+  const mx = r.x + r.w / 2, my = r.y + r.h / 2;
+  ctx.beginPath(); ctx.moveTo(mx, r.y + 4); ctx.lineTo(mx, r.y + r.h - 4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(r.x + 4, my); ctx.lineTo(r.x + r.w - 4, my); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawBuildingZone(r) {
+  const { zone } = r;
+  ctx.fillStyle = C.building;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+
+  // Tile grid clipped to zone
   ctx.save();
-  ctx.globalAlpha = 0.5;
-  ctx.fillStyle = '#0e1a0b';
-  for (let i = 0; i < 6; i++) {
-    const cx = r.x + ((i * 47) % r.w);
-    const cy = r.y + ((i * 31 + 15) % r.h);
-    ctx.beginPath();
-    ctx.arc(cx, cy, 8 + (i % 3) * 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.beginPath(); ctx.rect(r.x + 3, r.y + 3, r.w - 6, r.h - 6); ctx.clip();
+  ctx.strokeStyle = C.buildingTile;
+  ctx.lineWidth = 0.7;
+  const ts = 20;
+  const sx = Math.floor(r.x / ts) * ts, sy = Math.floor(r.y / ts) * ts;
+  for (let x = sx; x < r.x + r.w; x += ts) { ctx.beginPath(); ctx.moveTo(x, r.y); ctx.lineTo(x, r.y + r.h); ctx.stroke(); }
+  for (let y = sy; y < r.y + r.h; y += ts) { ctx.beginPath(); ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y); ctx.stroke(); }
   ctx.restore();
-}
 
-function drawBuildingDetails(r, zone) {
-  // Walls
-  ctx.strokeStyle = C.wall;
-  ctx.lineWidth = 4;
-  ctx.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
+  // Thick wall border
+  ctx.strokeStyle = C.buildingWall;
+  ctx.lineWidth = 5;
+  ctx.strokeRect(r.x + 2.5, r.y + 2.5, r.w - 5, r.h - 5);
 
-  // Windows
+  // Windows — horizontal walls
   ctx.fillStyle = C.window;
-  const winW = 28, winH = 12;
-  const cols = Math.floor(r.w / 40);
-  const rows = Math.floor(r.h / 35);
-  for (let wr = 0; wr < rows; wr++) {
-    for (let wc = 0; wc < cols; wc++) {
-      const wx = r.x + 12 + wc * (r.w - 24) / Math.max(cols - 1, 1) - winW / 2;
-      const wy = r.y + 16 + wr * (r.h - 32) / Math.max(rows - 1, 1);
-      ctx.fillRect(wx, wy, winW, winH);
-      ctx.strokeStyle = 'rgba(26,64,96,0.6)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(wx, wy, winW, winH);
-    }
+  const wW = 18, wH = 8, hCols = Math.max(1, Math.floor(r.w / 38));
+  for (let i = 0; i < hCols; i++) {
+    const wx = r.x + 14 + i * (r.w - 28) / Math.max(hCols - 1, 1) - wW / 2;
+    ctx.fillRect(wx, r.y + 7, wW, wH);
+    if (r.h > 110) ctx.fillRect(wx, r.y + r.h - 7 - wH, wW, wH);
+  }
+  // Windows — vertical walls
+  const vRows = Math.max(1, Math.floor(r.h / 38));
+  for (let i = 0; i < vRows; i++) {
+    const wy = r.y + 14 + i * (r.h - 28) / Math.max(vRows - 1, 1) - wW / 2;
+    ctx.fillRect(r.x + 7, wy, wH, wW);
+    ctx.fillRect(r.x + r.w - 7 - wH, wy, wH, wW);
   }
 
-  // Door if applicable
+  // Door
   if (zone.hasDoor) {
     ctx.fillStyle = C.door;
-    ctx.fillRect(r.x + r.w / 2 - 9, r.y + r.h - 8, 18, 8);
-    ctx.strokeStyle = '#c8a040';
+    ctx.fillRect(r.x + r.w / 2 - 11, r.y + r.h - 5, 22, 5);
+    ctx.strokeStyle = '#c88030';
     ctx.lineWidth = 1;
-    ctx.strokeRect(r.x + r.w / 2 - 9, r.y + r.h - 8, 18, 8);
+    ctx.strokeRect(r.x + r.w / 2 - 11, r.y + r.h - 5, 22, 5);
   }
 }
 
-function drawParkingLines(r) {
-  ctx.strokeStyle = '#1e1e1c';
+function drawGrassZone(r) {
+  ctx.fillStyle = C.grass;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.fillStyle = C.grassAlt;
+  for (let i = 0; i < 14; i++) {
+    const gx = r.x + ((i * 71 + 13) % r.w);
+    const gy = r.y + ((i * 43 + 19) % r.h);
+    ctx.beginPath(); ctx.arc(gx, gy, 4 + (i % 3) * 3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawParkingZone(r) {
+  ctx.fillStyle = C.parking;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeStyle = C.parkingLine;
   ctx.lineWidth = 1.5;
-  const spaces = 3;
+  const spaces = Math.max(2, Math.floor(r.w / 40));
   for (let i = 1; i < spaces; i++) {
     const x = r.x + (r.w / spaces) * i;
-    ctx.beginPath(); ctx.moveTo(x, r.y + 8); ctx.lineTo(x, r.y + r.h - 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, r.y + 6); ctx.lineTo(x, r.y + r.h - 6); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,210,0,0.16)';
+  ctx.font = "bold 30px 'Bebas Neue'";
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('P', r.x + r.w / 2, r.y + r.h / 2);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+
+// ── Zone overlays ─────────────────────────────────────────────────────────────
+function drawZoneOverlays(id, r) {
+  const { zone } = r;
+  const isSelected  = id === selectedZone;
+  const isReachable = reachableZones.includes(id) && !isSelected;
+  const isRanged    = rangedZones.includes(id);
+  const isExit      = zone.isExit;
+  const isSpawn     = !!zone.spawnId;
+  const cost        = reachableCosts[id];
+
+  if (isSpawn) {
+    ctx.fillStyle = C.spawnFill;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  }
+  if (isExit) {
+    const p = 0.14 + 0.08 * Math.sin(animFrame * 0.05);
+    ctx.fillStyle = `rgba(30,170,60,${p})`;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  }
+
+  // Movement zones — color by cost
+  if (isReachable && !isRanged) {
+    let fill, border, bw;
+    if      (cost <= 1) { fill = C.mv1Fill; border = C.mv1Border; bw = 2.5; }
+    else if (cost <= 2) { fill = C.mv2Fill; border = C.mv2Border; bw = 2; }
+    else                { fill = C.mv3Fill; border = C.mv3Border; bw = 1.5; }
+
+    ctx.fillStyle = fill;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+
+    const p = mapActionMode ? 0.7 + 0.3 * Math.sin(animFrame * 0.10) : 1;
+    ctx.save();
+    ctx.globalAlpha = p;
+    ctx.strokeStyle = border;
+    ctx.lineWidth = bw;
+    ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    ctx.restore();
+
+    // Action cost label
+    if (mapActionMode === 'move' && cost !== undefined) {
+      const label = `${cost} ação`;
+      ctx.font = "bold 9px 'Share Tech Mono'";
+      const tw = ctx.measureText(label).width + 8;
+      ctx.fillStyle = 'rgba(5,20,60,0.82)';
+      ctx.fillRect(r.x + r.w / 2 - tw / 2, r.y + r.h / 2 - 8, tw, 14);
+      ctx.fillStyle = '#80c0ff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // Attack zones
+  if (isRanged) {
+    const p = 0.7 + 0.3 * Math.sin(animFrame * 0.10);
+    ctx.fillStyle = C.atkFill;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.save();
+    ctx.globalAlpha = p;
+    ctx.strokeStyle = C.atkBorder;
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    ctx.restore();
+    if (mapActionMode === 'ranged') {
+      ctx.font = '13px serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🎯', r.x + r.w / 2, r.y + r.h / 2);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // Selected
+  if (isSelected) {
+    ctx.fillStyle = C.selFill;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = C.selBorder;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3);
+  }
+
+  // Default border
+  if (!isSelected && !isReachable && !isRanged) {
+    if (isSpawn) {
+      ctx.strokeStyle = C.spawnBorder;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+      ctx.setLineDash([]);
+    } else if (isExit) {
+      ctx.strokeStyle = C.exitBorder;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    }
   }
 }
 
+// ── Zone labels ───────────────────────────────────────────────────────────────
 function drawZoneLabels() {
   for (const [id, r] of Object.entries(zoneRects)) {
     const { zone } = r;
-    const isExit = zone.isExit;
+    const isExit  = zone.isExit;
     const isSpawn = !!zone.spawnId;
-    const isReachable = reachableZones.includes(id);
 
-    // Zone name — bottom-left with semi-transparent backdrop
-    const label = zone.name.toUpperCase();
+    // Zone name with backdrop
     ctx.font = "bold 9px 'Share Tech Mono'";
+    const label = zone.name.toUpperCase();
     const tw = ctx.measureText(label).width + 6;
-    const ty2 = r.y + r.h - 4;
-    const tx2 = r.x + 4;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(tx2 - 2, ty2 - 10, tw, 12);
-    ctx.fillStyle = isExit ? '#2a9a3a' : isSpawn ? '#c0152a' : isReachable ? '#4a9af5' : 'rgba(255,255,255,0.35)';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(label, tx2, ty2);
+    ctx.fillStyle = 'rgba(0,0,0,0.60)';
+    ctx.fillRect(r.x + 4, r.y + r.h - 14, tw, 12);
+    ctx.fillStyle = isExit ? '#22c048' : isSpawn ? '#ff6050' : 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(label, r.x + 7, r.y + r.h - 3);
 
-    // Spawn ID badge
-    if (zone.spawnId) {
-      ctx.fillStyle = '#7a0d1a';
-      ctx.fillRect(r.x + 4, r.y + 4, 24, 15);
-      ctx.strokeStyle = '#c0152a';
+    // Spawn badge
+    if (isSpawn) {
+      ctx.fillStyle = 'rgba(170,25,10,0.88)';
+      ctx.fillRect(r.x + 4, r.y + 4, 26, 16);
+      ctx.strokeStyle = '#ee2810';
       ctx.lineWidth = 1;
-      ctx.strokeRect(r.x + 4, r.y + 4, 24, 15);
-      ctx.fillStyle = '#ff4050';
-      ctx.font = "bold 10px 'Bebas Neue'";
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(zone.spawnId, r.x + 16, r.y + 11);
+      ctx.strokeRect(r.x + 4, r.y + 4, 26, 16);
+      ctx.fillStyle = '#ffaa90';
+      ctx.font = "bold 11px 'Bebas Neue'";
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(zone.spawnId, r.x + 17, r.y + 12);
     }
 
     // Exit marker
     if (isExit) {
       const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-      const pulse = 0.4 + 0.2 * Math.sin(animFrame * 0.05);
+      const p = 0.5 + 0.25 * Math.sin(animFrame * 0.06);
       ctx.save();
-      ctx.globalAlpha = pulse;
-      ctx.strokeStyle = '#2a9a3a';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy, 22, 0, Math.PI * 2); ctx.stroke();
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath(); ctx.arc(cx, cy, 14, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = p;
+      ctx.strokeStyle = '#22c048'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 24, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.arc(cx, cy, 15, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
-      ctx.fillStyle = '#2a9a3a';
-      ctx.font = "bold 12px 'Bebas Neue'";
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('SAÍDA', cx, cy - 6);
-      ctx.font = '14px serif';
+      ctx.font = '22px serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🚁', cx, cy - 4);
+      ctx.fillStyle = '#22c048';
+      ctx.font = "bold 10px 'Bebas Neue'";
       ctx.textBaseline = 'top';
-      ctx.fillText('🚁', cx - 7, cy + 4);
+      ctx.fillText('SAÍDA', cx, cy + 14);
     }
   }
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
 
-function drawTokens() {
+// ── Objective tokens ──────────────────────────────────────────────────────────
+function drawObjectiveTokens() {
   if (!gameState?.tokens) return;
-  for (const [tokenId, token] of Object.entries(gameState.tokens)) {
+  for (const [tid, token] of Object.entries(gameState.tokens)) {
     if (token.collected) continue;
     const r = zoneRects[token.zone];
     if (!r) continue;
-    const cx = r.x + r.w / 2;
-    const cy = r.y + r.h / 2;
-    const pulse = 0.7 + 0.3 * Math.sin(animFrame * 0.08);
-
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2 - 16;
+    const p = 0.7 + 0.3 * Math.sin(animFrame * 0.09);
     ctx.save();
-    ctx.globalAlpha = pulse;
-    ctx.strokeStyle = C.objective;
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(245,197,24,0.12)';
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.font = '11px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(token.label || '⭐', cx - 5, cy + 4);
-    ctx.font = "6px 'Share Tech Mono'";
-    ctx.fillStyle = C.objective;
-    ctx.fillText(tokenId, cx, cy + 18);
+    ctx.globalAlpha = p;
+    ctx.strokeStyle = C.objective; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, 14, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(230,184,16,0.12)'; ctx.fill();
     ctx.restore();
+    ctx.font = '13px serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(token.label || '⭐', cx, cy + 0.5);
+    ctx.font = "bold 7px 'Share Tech Mono'";
+    ctx.fillStyle = C.objective;
+    ctx.fillText(tid, cx, cy + 20);
   }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
 
-function drawZombies() {
+// ── Zombie tokens (grouped by zone + type, with count badge) ──────────────────
+function drawZombieTokens() {
   if (!gameState?.zombies) return;
-
-  // Group zombies by zone
   const byZone = {};
-  for (const [zid, z] of Object.entries(gameState.zombies)) {
-    if (!byZone[z.zone]) byZone[z.zone] = [];
-    byZone[z.zone].push({ ...z, id: zid });
+  for (const z of Object.values(gameState.zombies)) {
+    if (!byZone[z.zone]) byZone[z.zone] = {};
+    byZone[z.zone][z.type] = (byZone[z.zone][z.type] || 0) + 1;
   }
-
-  for (const [zoneId, zombies] of Object.entries(byZone)) {
+  for (const [zoneId, typeCounts] of Object.entries(byZone)) {
     const r = zoneRects[zoneId];
     if (!r) continue;
-
-    // Draw zombie tokens top-right area
     let ox = r.x + r.w - 6, oy = r.y + 6;
-    for (const z of zombies) {
-      const zdata = getZombieData(z.type);
-      if (!zdata) continue;
-      const size = z.type === 'colosso' ? 20 : 16;
-      ox -= size + 2;
-      if (ox < r.x + 4) { ox = r.x + r.w - size - 8; oy += size + 3; }
+    for (const [type, count] of Object.entries(typeCounts)) {
+      const zd = getZombieData(type);
+      if (!zd) continue;
+      const size = type === 'colosso' ? 24 : 18;
+      ox -= size + 4;
+      if (ox < r.x + 4) { ox = r.x + r.w - size - 8; oy += size + 6; }
+      const cx = ox + size / 2, cy = oy + size / 2;
 
-      ctx.fillStyle = hexToRgba(zdata.color, 0.6);
-      ctx.fillRect(ox, oy, size, size);
-      ctx.strokeStyle = zdata.color;
-      ctx.lineWidth = z.type === 'colosso' ? 2 : 1.5;
-      ctx.strokeRect(ox, oy, size, size);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 2;
+      ctx.fillStyle = darken(zd.color, 0.3);
+      ctx.beginPath(); ctx.arc(cx, cy, size / 2, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
 
-      ctx.fillStyle = zdata.color;
-      ctx.font = `bold ${z.type === 'colosso' ? 11 : 9}px 'Share Tech Mono'`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(zdata.label, ox + size / 2, oy + size / 2);
+      ctx.fillStyle = zd.color;
+      ctx.beginPath(); ctx.arc(cx, cy, size / 2, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = lighten(zd.color);
+      ctx.lineWidth = type === 'colosso' ? 2 : 1.5;
+      ctx.beginPath(); ctx.arc(cx, cy, size / 2, 0, Math.PI * 2); ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${type === 'colosso' ? 13 : 10}px 'Bebas Neue'`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(zd.label, cx, cy + 0.5);
+
+      if (count > 1) {
+        const bx = cx + size / 2 - 4, by = cy - size / 2 + 4;
+        ctx.fillStyle = '#c0152a';
+        ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 7px sans-serif';
+        ctx.fillText(count, bx, by + 0.5);
+      }
     }
   }
-  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
 
-function drawSurvivors() {
-  if (!gameState?.players) return;
+// ── Noise tokens ──────────────────────────────────────────────────────────────
+function drawNoiseTokens() {
+  if (!gameState?.noise) return;
+  for (const [zoneId, count] of Object.entries(gameState.noise)) {
+    if (count <= 0) continue;
+    const r = zoneRects[zoneId];
+    if (!r) continue;
+    let nx = r.x + 6, ny = r.y + 24;
+    for (let i = 0; i < Math.min(count, 6); i++) {
+      ctx.fillStyle = C.noise;
+      ctx.globalAlpha = 0.80;
+      ctx.beginPath(); ctx.arc(nx, ny, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      nx += 10;
+      if (nx > r.x + r.w - 8) { nx = r.x + 6; ny += 10; }
+    }
+  }
+}
 
-  // Group by zone
+// ── Survivor tokens ───────────────────────────────────────────────────────────
+function drawSurvivorTokens() {
+  if (!gameState?.players) return;
   const byZone = {};
   for (const [pid, p] of Object.entries(gameState.players)) {
     if (!p.zone || p.eliminated) continue;
     if (!byZone[p.zone]) byZone[p.zone] = [];
     byZone[p.zone].push({ ...p, id: pid });
   }
-
   for (const [zoneId, players] of Object.entries(byZone)) {
     const r = zoneRects[zoneId];
     if (!r) continue;
-
-    let ox = r.x + 4, oy = r.y + r.h - 18;
+    let ox = r.x + 6, oy = r.y + r.h - 20;
     for (const p of players) {
       const char = getCharData(p.character);
       if (!char) continue;
       const isActive = gameState.activePlayer === p.id;
-      const color = char.color;
-      const radius = isActive ? 12 : 10;
+      const radius = isActive ? 13 : 11;
+      const cx = ox + radius, cy = oy - radius;
 
-      // Active pulse ring
       if (isActive) {
-        const pulse = 0.4 + 0.3 * Math.sin(animFrame * 0.12);
+        const pulse = 0.35 + 0.30 * Math.sin(animFrame * 0.14);
         ctx.save();
         ctx.globalAlpha = pulse;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 3]);
-        ctx.beginPath(); ctx.arc(ox + radius, oy - radius + 2, radius + 5, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = char.color; ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.arc(cx, cy, radius + 7, 0, Math.PI * 2); ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
       }
 
-      ctx.fillStyle = hexToRgba(color, 0.5);
-      ctx.beginPath(); ctx.arc(ox + radius, oy - radius + 2, radius, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = color;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.50)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 2;
+      ctx.fillStyle = hexToRgba(char.color, 0.22);
+      ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = hexToRgba(char.color, 0.42);
+      ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = char.color;
       ctx.lineWidth = isActive ? 2.5 : 2;
-      ctx.beginPath(); ctx.arc(ox + radius, oy - radius + 2, radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
 
-      ctx.fillStyle = color;
-      ctx.font = `bold ${isActive ? 11 : 10}px 'Bebas Neue'`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(char.name.charAt(0), ox + radius, oy - radius + 3);
+      ctx.fillStyle = char.color;
+      ctx.font = `bold ${isActive ? 12 : 11}px 'Bebas Neue'`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(char.name.charAt(0), cx, cy + 0.5);
 
-      // Wound indicators
       if (p.wounds > 0) {
+        const wx = cx + radius - 3, wy = cy - radius + 3;
         ctx.fillStyle = '#c0152a';
-        ctx.font = "8px sans-serif";
-        ctx.fillText('⚠', ox + radius * 2, oy - radius * 2 + 2);
+        ctx.beginPath(); ctx.arc(wx, wy, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(wx, wy, 5, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 6px sans-serif';
+        ctx.fillText(p.wounds, wx, wy + 0.5);
       }
 
       ox += radius * 2 + 4;
-      if (ox > r.x + r.w - 20) { ox = r.x + 4; oy -= radius * 2 + 4; }
+      if (ox > r.x + r.w - 14) { ox = r.x + 6; oy -= radius * 2 + 4; }
     }
   }
-
-  // Noise tokens
-  if (gameState?.noise) {
-    for (const [zoneId, count] of Object.entries(gameState.noise)) {
-      if (count <= 0) continue;
-      const r = zoneRects[zoneId];
-      if (!r) continue;
-      let nx = r.x + 5, ny = r.y + 5;
-      for (let i = 0; i < Math.min(count, 6); i++) {
-        ctx.fillStyle = C.noise;
-        ctx.globalAlpha = 0.85;
-        ctx.beginPath(); ctx.arc(nx, ny, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
-        nx += 10;
-        if (nx > r.x + 40) { nx = r.x + 5; ny += 10; }
-      }
-    }
-  }
-
-  ctx.textBaseline = 'alphabetic';
-  ctx.textAlign = 'left';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
 
+// ── Turn indicator ────────────────────────────────────────────────────────────
 function drawTurnIndicator() {
   if (!gameState?.activePlayer) return;
   const player = gameState.players?.[gameState.activePlayer];
@@ -516,101 +582,106 @@ function drawTurnIndicator() {
 
   ctx.font = "bold 10px 'Share Tech Mono'";
   const text = `▶ ${char.name} — ${player.actionsLeft ?? 0} AÇÕES`;
-  const textW = ctx.measureText(text).width + 20;
-  const bx = CANVAS_W / 2 - textW / 2, by = 6;
+  const tw = ctx.measureText(text).width + 20;
+  const bx = CANVAS_W / 2 - tw / 2, by = 6;
 
   ctx.fillStyle = 'rgba(0,0,0,0.88)';
-  ctx.fillRect(bx, by, textW, 18);
+  ctx.fillRect(bx, by, tw, 18);
   ctx.strokeStyle = char.color || '#1a6fc4';
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(bx, by, textW, 18);
-  ctx.fillStyle = char.color || '#4a9af5';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.strokeRect(bx, by, tw, 18);
+  ctx.fillStyle = char.color || '#fff';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(text, CANVAS_W / 2, by + 9);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
 
+// ── Action mode overlay ───────────────────────────────────────────────────────
 function drawActionModeOverlay() {
-  const labels = { move: '🚶 CLIQUE EM UMA ZONA PARA MOVER', ranged: '🔫 CLIQUE EM UMA ZONA PARA ATIRAR' };
-  const label = labels[mapActionMode] || `▶ SELECIONE UMA ZONA`;
-  const pulse = 0.85 + 0.15 * Math.sin(animFrame * 0.15);
+  const labels = {
+    move:   '🚶 CLIQUE EM UMA ZONA AZUL PARA MOVER',
+    ranged: '🔫 CLIQUE EM UMA ZONA LARANJA PARA ATIRAR',
+  };
+  const text = labels[mapActionMode] || '▶ SELECIONE UMA ZONA';
+  const p = 0.88 + 0.12 * Math.sin(animFrame * 0.15);
 
-  ctx.font = "bold 11px 'Share Tech Mono'";
-  const tw = ctx.measureText(label).width + 24;
-  const bx = CANVAS_W / 2 - tw / 2;
-  const by = CANVAS_H - 28;
+  ctx.font = "bold 10px 'Share Tech Mono'";
+  const tw = ctx.measureText(text).width + 24;
+  const bx = CANVAS_W / 2 - tw / 2, by = CANVAS_H - 26;
 
-  ctx.fillStyle = `rgba(26,111,196,${0.9 * pulse})`;
-  ctx.fillRect(bx, by, tw, 22);
-  ctx.strokeStyle = `rgba(74,154,245,${pulse})`;
+  const isAtk = mapActionMode === 'ranged';
+  ctx.fillStyle = isAtk ? `rgba(160,50,10,${0.88*p})` : `rgba(15,70,170,${0.88*p})`;
+  ctx.fillRect(bx, by, tw, 20);
+  ctx.strokeStyle = isAtk ? `rgba(255,120,40,${p})` : `rgba(80,160,255,${p})`;
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(bx, by, tw, 22);
+  ctx.strokeRect(bx, by, tw, 20);
   ctx.fillStyle = '#fff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, CANVAS_W / 2, by + 11);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, CANVAS_W / 2, by + 10);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
-  // Animated border on canvas to draw attention
-  ctx.strokeStyle = `rgba(74,154,245,${0.3 * pulse})`;
+  ctx.strokeStyle = isAtk ? `rgba(255,120,40,${0.22*p})` : `rgba(80,160,255,${0.22*p})`;
   ctx.lineWidth = 3;
-  ctx.strokeRect(3, 3, CANVAS_W - 6, CANVAS_H - 6);
+  ctx.globalAlpha = p;
+  ctx.strokeRect(2, 2, CANVAS_W - 4, CANVAS_H - 4);
+  ctx.globalAlpha = 1;
 }
 
+// ── Decorative border + compass ───────────────────────────────────────────────
 function drawBorder() {
-  ctx.strokeStyle = '#3a3530';
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#3a3530'; ctx.lineWidth = 3;
   ctx.strokeRect(1.5, 1.5, CANVAS_W - 3, CANVAS_H - 3);
-  // Corner accents
-  const corners = [[0,0],[CANVAS_W-16,0],[0,CANVAS_H-16],[CANVAS_W-16,CANVAS_H-16]];
-  ctx.fillStyle = 'rgba(192,21,42,0.35)';
-  corners.forEach(([cx,cy]) => ctx.fillRect(cx, cy, 16, 16));
+  const corners = [[0,0],[CANVAS_W-14,0],[0,CANVAS_H-14],[CANVAS_W-14,CANVAS_H-14]];
+  ctx.fillStyle = 'rgba(192,21,42,0.28)';
+  corners.forEach(([cx,cy]) => ctx.fillRect(cx, cy, 14, 14));
 }
 
 function drawCompass() {
-  const cx = CANVAS_W - 24, cy = CANVAS_H - 24;
+  const cx = CANVAS_W - 22, cy = CANVAS_H - 22;
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 16, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#3a3530'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, 16, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = '#c0152a';
-  ctx.font = "bold 11px 'Bebas Neue'";
+  ctx.font = "bold 10px 'Bebas Neue'";
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('N', cx, cy - 6);
-  ctx.fillStyle = '#444';
-  ctx.font = "8px 'Bebas Neue'";
-  ctx.fillText('S', cx, cy + 7);
-  ctx.fillText('W', cx - 9, cy + 1);
-  ctx.fillText('E', cx + 9, cy + 1);
-  // North arrow
+  ctx.fillText('N', cx, cy - 5);
+  ctx.fillStyle = '#555';
+  ctx.font = "7px 'Bebas Neue'";
+  ctx.fillText('S', cx, cy + 6); ctx.fillText('W', cx - 8, cy); ctx.fillText('E', cx + 8, cy);
   ctx.strokeStyle = '#c0152a'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy - 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy - 13); ctx.lineTo(cx, cy - 8); ctx.stroke();
   ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
 }
 
-// Helpers
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function getZombieData(type) {
-  return { walker:{color:'#5a8a5a',label:'W'}, runner:{color:'#c8a820',label:'R'}, fatty:{color:'#c86820',label:'F'}, colosso:{color:'#ff1a35',label:'C'} }[type];
+  return { walker:{color:C.walker,label:'W'}, runner:{color:C.runner,label:'R'}, fatty:{color:C.fatty,label:'F'}, colosso:{color:C.colosso,label:'C'} }[type] || null;
 }
+
 function getCharData(charId) {
-  const map = { nick:{name:'NICK',color:'#4a9af5'}, bilico:{name:'BILICO',color:'#ff3a50'}, allastor:{name:'ALLASTOR55',color:'#e07520'}, math:{name:'MATH',color:'#2a9a3a'}, felipinho:{name:'FELIPINHO',color:'#f5c518'}, solamentos:{name:'SOLAMENTOS',color:'#9a5aca'}, bigbi:{name:'BIGBI',color:'#aaaaaa'} };
-  return map[charId];
+  const c = CHARACTERS[charId];
+  return c ? { name: c.name, color: c.color } : null;
 }
+
 function hexToRgba(hex, alpha) {
+  if (!hex || hex.length < 7) return `rgba(150,150,150,${alpha})`;
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-export function getZoneAt(x, y) {
-  for (const [id, r] of Object.entries(zoneRects)) {
-    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return id;
-  }
-  return null;
+function lighten(hex) {
+  if (!hex || hex.length < 7) return '#fff';
+  const r = Math.min(255, parseInt(hex.slice(1,3),16) + 55);
+  const g = Math.min(255, parseInt(hex.slice(3,5),16) + 55);
+  const b = Math.min(255, parseInt(hex.slice(5,7),16) + 55);
+  return `rgb(${r},${g},${b})`;
 }
 
-export function getZoneRect(zoneId) {
-  return zoneRects[zoneId] || null;
+function darken(hex, f) {
+  if (!hex || hex.length < 7) return '#000';
+  const r = Math.floor(parseInt(hex.slice(1,3),16) * (1-f));
+  const g = Math.floor(parseInt(hex.slice(3,5),16) * (1-f));
+  const b = Math.floor(parseInt(hex.slice(5,7),16) * (1-f));
+  return `rgb(${r},${g},${b})`;
 }

@@ -4,7 +4,7 @@
 // ============================================================
 
 import { CHARACTERS, WEAPONS, ZOMBIES, MISSION_01 } from './game-data.js';
-import { updateGameState, setSelectedZone, setReachableZones } from './map-renderer.js';
+import { updateGameState, setSelectedZone, setReachableZones, setRangedZones } from './map-renderer.js';
 
 let localPlayerId = null;
 let localGameState = null;
@@ -36,11 +36,12 @@ export function renderGameState(state) {
   // Update map selection based on available actions
   const myPlayer = state.players[localPlayerId];
   if (myPlayer && !myPlayer.eliminated && state.activePlayer === localPlayerId && state.phase === 'players') {
-    const adj = MISSION_01.adjacency[myPlayer.zone] || [];
-    setReachableZones(myPlayer.actionsLeft > 0 ? adj : []);
+    const costs = myPlayer.actionsLeft > 0 ? computeReachableWithCosts(myPlayer, state) : {};
+    setReachableZones(costs);
     setSelectedZone(myPlayer.zone);
   } else {
     setReachableZones([]);
+    setRangedZones([]);
     setSelectedZone(null);
   }
 }
@@ -479,6 +480,55 @@ function initMapControls() {
   if (document.readyState === 'complete') { requestAnimationFrame(fitToViewport); }
   else { window.addEventListener('load', () => requestAnimationFrame(fitToViewport)); }
   window.addEventListener('resize', fitToViewport);
+}
+
+// ── BFS: reachable zones with action costs ────────────────────────────────────
+function computeReachableWithCosts(myPlayer, state) {
+  const zombiesByZone = {};
+  for (const z of Object.values(state.zombies || {})) {
+    zombiesByZone[z.zone] = (zombiesByZone[z.zone] || 0) + 1;
+  }
+  const result = {};
+  const visited = new Set([myPlayer.zone]);
+  const queue = [{ zone: myPlayer.zone, cost: 0 }];
+
+  while (queue.length > 0) {
+    const { zone, cost } = queue.shift();
+    const zombiesHere = zombiesByZone[zone] || 0;
+    // bilico and felipinho ignore extra cost from zombies when leaving
+    const exitCost = (myPlayer.character === 'bilico' || myPlayer.character === 'felipinho')
+      ? 1 : 1 + zombiesHere;
+
+    for (const next of (MISSION_01.adjacency[zone] || [])) {
+      if (visited.has(next)) continue;
+      const totalCost = cost + exitCost;
+      if (totalCost <= myPlayer.actionsLeft) {
+        visited.add(next);
+        result[next] = totalCost;
+        queue.push({ zone: next, cost: totalCost });
+      }
+    }
+  }
+  return result;
+}
+
+export function computeRangedZones(playerZone, weapon) {
+  if (!weapon?.range) return [];
+  const [minR, maxR] = weapon.range;
+  const dist = { [playerZone]: 0 };
+  const queue = [{ zone: playerZone, d: 0 }];
+  while (queue.length > 0) {
+    const { zone, d } = queue.shift();
+    if (d >= maxR) continue;
+    for (const next of (MISSION_01.adjacency[zone] || [])) {
+      if (dist[next] !== undefined) continue;
+      dist[next] = d + 1;
+      queue.push({ zone: next, d: d + 1 });
+    }
+  }
+  return Object.entries(dist)
+    .filter(([, d]) => d >= minR && d <= maxR)
+    .map(([z]) => z);
 }
 
 // Helper
